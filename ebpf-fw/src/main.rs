@@ -40,7 +40,7 @@ async fn main() -> Result<(), anyhow::Error> {
     ))?;
     #[cfg(not(debug_assertions))]
     let mut bpf = Bpf::load(include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/release/ebpf-fw"
+        "../../target/bpfel-unknown-none/debug/ebpf-fw"
     ))?;
     if let Err(e) = BpfLogger::init(&mut bpf) {
         // This can happen if you remove all log statements from your eBPF program.

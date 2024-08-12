@@ -3,65 +3,94 @@
 
   inputs = {
     nixpkgs.url      = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url  = "github:numtide/flake-utils";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.rust-analyzer-src.follows = "";
+    };
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, fenix, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
-          inherit system overlays;
+          inherit system;
+          overlays = [ (import rust-overlay) ];
         };
-      in
-      with pkgs;
-      {
-        devShells.default = mkShell {
-          buildInputs = [
+
+        inherit (pkgs) lib;
+
+        craneLib = (crane.mkLib pkgs).overrideToolchain (p:
+        p.rust-bin.nightly.latest.default.override {
+          extensions = ["rust-src" "clippy" "rustfmt"
+                        "rust-analysis" "rustc" "miri"
+                        "rust" "rust-std" "cargo" "rust-analyzer"];
+        });
+        src = craneLib.cleanCargoSource ./.;
+        commonArgs = {
+          inherit src;
+          strictDeps = true;
+
+          buildInputs = with pkgs; [
             openssl
             pkg-config
             eza
             fd
             lldb
-           # rustup
             clang
-            cmake   # Example: build system
-            (pkgs.rust-bin.nightly.latest.rust.override {
-              extensions = ["rust-src" "clippy" "rustfmt" "rust-analysis" "rustc" "miri" "rust" "rust-std" "cargo" "rust-analyzer"];
-            })
             cargo-audit
+            bpf-linker
           ];
+        };
 
-          shellHook = ''
-            echo "Dev shell is starting..."
-            export CC=$(which gcc)  # Set the C compiler
-            export CXX=$(which g++) # Set the C++ compiler
-            alias ls=eza
-            alias find=fd
-            export PATH="$HOME/.cargo/bin:$PATH"
-            cargo install cargo-xtask
-            cargo install bpf-linker
-            cargo install cargo-tarpaulin
-            export PATH="$HOME/.cargo/bin:$PATH"
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-           # Store the project root directory
-            export PROJECT_ROOT=$(pwd)
+        individualCrateArgs = commonArgs // {
+          inherit cargoArtifacts;
+          inherit (craneLib.crateNameFromCargoToml { inherit src; })
+          version;
+          doCheck = false;
+        };
 
-            # Override the cd command
-            function cd() {
-              # Get the absolute path of the target directory
-              target_dir=$(readlink -f "$1")
-              if [[ "$target_dir" != "$PROJECT_ROOT"* ]]; then
-                echo "Navigation outside the project root is not allowed"
-              else
-                builtin cd "$1"
-              fi
-            }
+        fileSetForCrate = crate: lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./xtask
+            ./ebpf-fw-common
+            ./ebpf-fw
+            crate
+          ];
+        };
 
-            echo "Welcome to Devshell..."
+        ebpf-fw= craneLib.buildPackage (individualCrateArgs //
+        {
+          pname = "ebpf-fw";
+          cargoExtraArgs = "-p ebpf-fw";
+          src = fileSetForCrate ./ebpf-fw;
+          CARGO_BUILD_RUSTFLAGS = "-C link-arg=-lasan -Zproc-macro-backtrace";
+        });
 
-          '';
+      in
+      with pkgs;
+      {
+        packages = {
+          inherit ebpf-fw;
+          default = ebpf-fw;
+        };
+
+        devShells.default = craneLib.devShell {
+          inherit (commonArgs) buildInputs;
         };
       }
     );
