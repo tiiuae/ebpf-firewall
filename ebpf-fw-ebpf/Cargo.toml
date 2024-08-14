@@ -9,7 +9,7 @@ aya-log-ebpf = "0.1.0"
 ebpf-fw-common = { path = "../ebpf-fw-common" }
 
 [[bin]]
-name = "ebpf-fw"
+name = "ebpf-fw-ebpf"
 path = "src/main.rs"
 
 [profile.dev]
@@ -27,6 +27,5 @@ rpath = false
 lto = true
 panic = "abort"
 codegen-units = 1
-
 [workspace]
 members = []
