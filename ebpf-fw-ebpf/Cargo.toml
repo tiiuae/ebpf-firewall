@@ -1,0 +1,31 @@
+[package]
+name = "ebpf-fw-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya-ebpf = "0.1.0"
+aya-log-ebpf = "0.1.0"
+ebpf-fw-common = { path = "../ebpf-fw-common" }
+
+[[bin]]
+name = "ebpf-fw-ebpf"
+path = "src/main.rs"
+
+[profile.dev]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = true
+panic = "abort"
+incremental = false
+codegen-units = 1
+rpath = false
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+[workspace]
+members = []
