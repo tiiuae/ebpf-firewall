@@ -17,6 +17,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
+    };
   };
 
   outputs = {
@@ -26,6 +30,7 @@
     crane,
     fenix,
     rust-overlay,
+    advisory-db,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (
@@ -71,6 +76,7 @@
             lldb
             clang
             cargo-audit
+            cargo-tarpaulin
             bpf-linker
           ];
         };
@@ -118,6 +124,44 @@
             ];
           };
 
+        # Sequential flake checking can be utilized for CI/CD purposes.
+        # Run squence cmd: 'nix flake check'
+        # 1. Check formatting
+        ebpFwPackage-cargoFmt = craneLib.cargoFmt (individualCrateArgs
+          // {
+            inherit src cargoArtifacts;
+          });
+
+        #  2. Run clippy (and deny all warnings) on the crate source.
+        ebpFwPackage-cargoClippy = craneLib.cargoClippy (individualCrateArgs
+          // {
+            # Again we apply some extra arguments only to this derivation
+            # and not every where else. In this case we add some clippy flags
+            cargoArtifacts = ebpFwPackage-cargoFmt;
+            nativeBuildInputs = with pkgs; [
+              bpf-linker
+            ];
+            preBuild = ''
+              cargo run --bin xtask build-ebpf --release
+              cargo build --release
+            '';
+            cargoClippyExtraArgs = "-- --deny warnings";
+          });
+
+        # 3. we want to run the tests and collect code-coverage, _but only if
+        # the clippy checks pass_ so we do not waste any extra cycles.
+        ebpFwPackage-cargoTarpaulin = craneLib.cargoTarpaulin (individualCrateArgs
+          // {
+            cargoArtifacts = ebpFwPackage-cargoClippy;
+          });
+
+        # 4. cargo-audit
+        ebpFwPackage-cargoAudit = craneLib.cargoAudit (individualCrateArgs
+          // {
+            inherit advisory-db;
+            cargoArtifacts = ebpFwPackage-cargoTarpaulin;
+          });
+
         mkEbpFwPackage = buildType:
           craneLib.buildPackage (individualCrateArgs
             // {
@@ -160,8 +204,16 @@
             inherit ebpfFwRelease ebpfFwDebug;
             default = ebpfFwRelease; # Default to release build
           };
-
+          checks = {
+            inherit
+              # Build the crate as part of `nix flake check` for convenience
+              ebpfFwRelease
+              ebpFwPackage-cargoAudit
+              ;
+          };
           devShells.default = craneLib.devShell {
+            # Inherit inputs from checks.
+            checks = self.checks.${system};
             inherit (commonArgs) buildInputs;
           };
         }
