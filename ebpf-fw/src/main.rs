@@ -2,7 +2,7 @@ use aya::programs::{tc, SchedClassifier, TcAttachType};
 use aya::{include_bytes_aligned, Bpf};
 use aya_log::BpfLogger;
 use clap::Parser;
-use log::{info, warn, debug};
+use log::{info, warn};
 use tokio::signal;
 
 #[derive(Debug, Parser)]
@@ -18,8 +18,6 @@ async fn main() -> Result<(), anyhow::Error> {
     let opt = Opt::parse();
 
     env_logger::init();
-
-
 
     // This will include your eBPF object file as raw bytes at compile-time and load it at
     // runtime. This approach is recommended for most real-world use cases. If you would
